@@ -62,10 +62,13 @@ func (s *PaymentService) CreatePaymentLink(
 		currency = DefaultCurrency
 	}
 
-	// Convert amount to smallest currency unit (halalah for SAR)
-	// 1 SAR = 100 halalah
-	// Round to nearest integer to avoid truncation errors
-	amountInSmallestUnit := req.Amount.Mul(decimal.NewFromInt(100)).Round(0).IntPart()
+	// Convert amount to smallest currency unit using currency-aware conversion
+	amountInSmallestUnit, err := convertToSmallestUnit(req.Amount, currency)
+	if err != nil {
+		return nil, ierr.WithError(err).
+			WithHint("Failed to convert amount to smallest currency unit").
+			Mark(ierr.ErrValidation)
+	}
 
 	// Determine callback URL
 	callbackURL := req.SuccessURL
