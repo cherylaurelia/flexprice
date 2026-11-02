@@ -10,7 +10,6 @@ import (
 	"github.com/flexprice/flexprice/internal/metrics"
 
 	"github.com/samber/lo"
-	"github.com/shopspring/decimal"
 
 	"github.com/flexprice/flexprice/internal/api/dto"
 	"github.com/flexprice/flexprice/internal/domain/entityintegrationmapping"
@@ -187,8 +186,8 @@ func (h *Handler) handlePaymentCaptured(ctx context.Context, event *RazorpayWebh
 	paymentStatus := string(types.PaymentStatusSucceeded)
 	now := clock.Now()
 
-	// Convert amount from smallest currency unit (paise) to standard unit
-	amount := decimal.NewFromInt(payment.Amount).Div(decimal.NewFromInt(100))
+	// Convert amount from the payment currency's smallest unit to standard unit
+	amount := razorpay.FromSmallestUnit(payment.Amount, payment.Currency)
 
 	// Determine payment method ID based on payment method type
 	paymentMethodID := getPaymentMethodID(payment)
@@ -586,7 +585,7 @@ func (h *Handler) handleRefundProcessed(ctx context.Context, event *RazorpayWebh
 
 	err := services.RefundService.Settle(ctx, &dto.SettleRefundRequest{
 		RefundID:      row.ID,
-		SettledAmount: decimal.NewFromInt(entity.Amount).Div(decimal.NewFromInt(100)),
+		SettledAmount: razorpay.FromSmallestUnit(entity.Amount, entity.Currency),
 		DestinationID: lo.ToPtr(entity.ID),
 		GatewayMetadata: map[string]interface{}{
 			"status":              entity.Status,

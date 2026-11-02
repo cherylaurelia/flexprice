@@ -508,6 +508,45 @@ func (s *WebhookCheckoutBranchingSuite) TestPaymentCaptured_Standalone_RecordsSu
 	s.Equal(types.PaymentStatusSucceeded, s.paymentSvc.payment.PaymentStatus)
 }
 
+type reconcileCapturingInvoiceService struct {
+	webhookTestInvoiceService
+	amount *decimal.Decimal
+}
+
+func (c *reconcileCapturingInvoiceService) ReconcilePaymentStatus(_ context.Context, _ string, _ types.PaymentStatus, amount *decimal.Decimal) error {
+	c.amount = amount
+	return nil
+}
+
+func (s *WebhookCheckoutBranchingSuite) TestPaymentCaptured_ReconcilesCurrencySmallestUnit() {
+	cases := []struct {
+		currency string
+		units    int64
+		want     string
+	}{
+		{currency: "INR", units: 29900, want: "299"},
+		{currency: "JPY", units: 12000, want: "12000"},
+		{currency: "KWD", units: 12500, want: "12.5"},
+	}
+	for _, tt := range cases {
+		s.Run(tt.currency, func() {
+			invoices := &reconcileCapturingInvoiceService{}
+			s.services.InvoiceService = invoices
+			s.paymentSvc.payment.PaymentStatus = types.PaymentStatusPending
+
+			captured := &RazorpayWebhookEvent{Event: string(EventPaymentCaptured)}
+			captured.Payload.Payment.Entity.ID = "pay_rzp_002"
+			captured.Payload.Payment.Entity.Amount = tt.units
+			captured.Payload.Payment.Entity.Currency = tt.currency
+			captured.Payload.Payment.Entity.Notes = map[string]interface{}{"flexprice_payment_id": "pay_flex_001"}
+			s.NoError(s.handler.handlePaymentCaptured(s.ctx, captured, s.services))
+
+			s.Require().NotNil(invoices.amount)
+			s.True(decimal.RequireFromString(tt.want).Equal(*invoices.amount), "reconciled %s", invoices.amount)
+		})
+	}
+}
+
 func (s *WebhookCheckoutBranchingSuite) TestPaymentCaptured_NoSessionFound_FallsThroughToStandalone() {
 	event := &RazorpayWebhookEvent{Event: string(EventPaymentCaptured)}
 	event.Payload.Payment.Entity.ID = "pay_rzp_001"

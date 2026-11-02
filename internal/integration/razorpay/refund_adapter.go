@@ -22,7 +22,7 @@ func (a *RefundAdapter) RefundPayment(ctx context.Context, req interfaces.Refund
 			Mark(ierr.ErrValidation)
 	}
 
-	result, err := a.Client.RefundPayment(ctx, req.GatewayPaymentID, toPaise(req.Amount), req.IdempotencyKey)
+	result, err := a.Client.RefundPayment(ctx, req.GatewayPaymentID, toSmallestUnit(req.Amount, req.Currency), req.IdempotencyKey)
 	if err != nil {
 		return nil, err
 	}

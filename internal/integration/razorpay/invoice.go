@@ -9,7 +9,6 @@ import (
 	"github.com/flexprice/flexprice/internal/clock"
 
 	"github.com/samber/lo"
-	"github.com/shopspring/decimal"
 
 	"github.com/flexprice/flexprice/internal/cache"
 	"github.com/flexprice/flexprice/internal/domain/entityintegrationmapping"
@@ -607,10 +606,6 @@ func (s *InvoiceSyncService) buildLineItems(flexInvoice *invoice.Invoice) (map[s
 		// Keep quantity as 1 and use total line item amount
 		quantity := 1
 
-		// Convert total line item amount to smallest currency unit (paise/cents)
-		// Razorpay expects integer amount in smallest unit
-		amountInSmallestUnit := item.Amount.Mul(decimal.NewFromInt(100)).IntPart()
-
 		// Build Razorpay line item
 		// Use line item currency (convert to uppercase as Razorpay expects uppercase currency codes)
 		// Fallback to invoice currency if line item currency is empty
@@ -618,6 +613,9 @@ func (s *InvoiceSyncService) buildLineItems(flexInvoice *invoice.Invoice) (map[s
 		if lineItemCurrency == "" {
 			lineItemCurrency = strings.ToUpper(flexInvoice.Currency)
 		}
+
+		// Razorpay expects an integer amount in the currency's smallest unit
+		amountInSmallestUnit := toSmallestUnit(item.Amount, lineItemCurrency)
 		razorpayLineItem := RazorpayLineItem{
 			Name:        itemName,
 			Description: itemDescription,
@@ -693,11 +691,11 @@ func (s *InvoiceSyncService) buildSyncResponse(razorpayInvoice map[string]interf
 
 	// Extract amounts (Razorpay returns in smallest unit)
 	if amount, ok := razorpayInvoice["amount"].(float64); ok {
-		response.Amount = decimal.NewFromFloat(amount).Div(decimal.NewFromInt(100))
+		response.Amount = FromSmallestUnit(int64(amount), response.Currency)
 	}
 
 	if amountDue, ok := razorpayInvoice["amount_due"].(float64); ok {
-		response.AmountDue = decimal.NewFromFloat(amountDue).Div(decimal.NewFromInt(100))
+		response.AmountDue = FromSmallestUnit(int64(amountDue), response.Currency)
 	}
 
 	// Extract timestamp

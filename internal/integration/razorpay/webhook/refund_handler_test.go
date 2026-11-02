@@ -107,6 +107,29 @@ func (s *RazorpayRefundWebhookSuite) TestRefundProcessedSettlesOnceOnReplay() {
 	s.Equal("refund_001", s.refundSv.settleCalls[0].RefundID)
 }
 
+func (s *RazorpayRefundWebhookSuite) TestRefundProcessedReadsCurrencySmallestUnit() {
+	cases := []struct {
+		currency string
+		units    int64
+		want     string
+	}{
+		{currency: "JPY", units: 5000, want: "5000"},
+		{currency: "KWD", units: 12500, want: "12.5"},
+	}
+	for _, tt := range cases {
+		s.Run(tt.currency, func() {
+			event := s.event(EventRefundProcessed, "rfnd_001", tt.units)
+			event.Payload.Refund.Entity.Currency = tt.currency
+
+			s.NoError(s.handler.HandleWebhookEvent(s.ctx, event, "env_test", s.services))
+
+			s.Require().Len(s.refundSv.settleCalls, 1)
+			s.True(decimal.RequireFromString(tt.want).Equal(s.refundSv.settleCalls[0].SettledAmount))
+			s.refundSv.settleCalls = nil
+		})
+	}
+}
+
 func (s *RazorpayRefundWebhookSuite) TestRefundFailedMarksRowFailed() {
 	event := s.event(EventRefundFailed, "rfnd_001", 5000)
 

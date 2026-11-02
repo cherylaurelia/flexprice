@@ -16,12 +16,14 @@ import (
 	"github.com/flexprice/flexprice/internal/types"
 )
 
-// toPaise converts a major-unit decimal (rupees) to paise for Razorpay API calls.
+const mandateCurrencyPrecision = 2
+
+// toPaise converts a major-unit decimal to the smallest unit of a two-decimal currency.
 func toPaise(major decimal.Decimal) int64 {
 	return major.Mul(decimal.NewFromInt(100)).IntPart()
 }
 
-// fromPaise converts a paise float64 (as returned by Razorpay) to a major-unit decimal.
+// fromPaise converts a two-decimal smallest-unit float64 from Razorpay to a major-unit decimal.
 func fromPaise(paise float64) decimal.Decimal {
 	return decimal.NewFromFloat(paise).Div(decimal.NewFromInt(100))
 }
@@ -189,6 +191,13 @@ func (a *CheckoutAdapter) CreateAuthorizationLink(
 	method, err := razorpaySubscriptionMethod(req.PreferredMethod)
 	if err != nil {
 		return nil, err
+	}
+
+	// A token's max_amount has no currency on read, so its limit only round-trips at two decimals.
+	if types.GetCurrencyPrecision(req.Currency) != mandateCurrencyPrecision {
+		return nil, ierr.NewErrorf("razorpay mandates do not support currency %q", req.Currency).
+			WithHint("Razorpay mandates are only supported for currencies with two decimal places").
+			Mark(ierr.ErrValidation)
 	}
 
 	c, err := a.Svc.customerSvc.EnsureCustomerSyncedToRazorpay(ctx, req.CustomerID, a.CustomerSvc)

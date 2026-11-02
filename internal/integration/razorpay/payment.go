@@ -213,9 +213,9 @@ func (s *PaymentService) CreatePaymentLink(ctx context.Context, req *CreatePayme
 			Mark(ierr.ErrValidation)
 	}
 
-	// Convert amount to smallest currency unit (paise for INR, cents for USD, etc.)
+	// Convert amount to smallest currency unit (paise for INR, whole yen for JPY, fils for KWD)
 	// Razorpay expects amounts in smallest currency unit
-	amountInSmallestUnit := req.Amount.Mul(decimal.NewFromInt(100)).IntPart()
+	amountInSmallestUnit := toSmallestUnit(req.Amount, req.Currency)
 
 	// Build notes with metadata and line items
 	notes := map[string]interface{}{
@@ -770,12 +770,13 @@ func extractStringFromMap(data map[string]interface{}, key string) *string {
 
 // extractAmountFromPayment extracts and converts amount from payment data
 func extractAmountFromPayment(payment map[string]interface{}) decimal.Decimal {
-	// Razorpay amount is in smallest currency unit (paise)
+	// Razorpay amount is in the payment currency's smallest unit
+	currency := lo.FromPtrOr(extractStringFromMap(payment, "currency"), "INR")
 	if amountInt, ok := payment["amount"].(int64); ok {
-		return decimal.NewFromInt(amountInt).Div(decimal.NewFromInt(100))
+		return FromSmallestUnit(amountInt, currency)
 	}
 	if amountFloat, ok := payment["amount"].(float64); ok {
-		return decimal.NewFromFloat(amountFloat).Div(decimal.NewFromInt(100))
+		return FromSmallestUnit(int64(amountFloat), currency)
 	}
 	return decimal.Zero
 }
@@ -898,10 +899,10 @@ func (s *PaymentService) AutoCharge(ctx context.Context, req AutoChargeRequest) 
 		"amount", req.Amount.String(),
 		"currency", req.Currency)
 
-	amountPaise := toPaise(req.Amount)
+	amountInSmallestUnit := toSmallestUnit(req.Amount, req.Currency)
 
 	orderData := map[string]interface{}{
-		"amount":          amountPaise,
+		"amount":          amountInSmallestUnit,
 		"currency":        strings.ToUpper(req.Currency),
 		"payment_capture": true,
 		"receipt":         req.InvoiceID, // Razorpay-native idempotency key
@@ -978,10 +979,10 @@ func (s *PaymentService) handleExistingOrder(ctx context.Context, req AutoCharge
 
 // submitRecurringPayment calls Razorpay's recurring payment API against orderID.
 func (s *PaymentService) submitRecurringPayment(ctx context.Context, req AutoChargeRequest, orderID string) (*AutoChargeResult, error) {
-	amountPaise := toPaise(req.Amount)
+	amountInSmallestUnit := toSmallestUnit(req.Amount, req.Currency)
 
 	paymentData := map[string]interface{}{
-		"amount":      amountPaise,
+		"amount":      amountInSmallestUnit,
 		"currency":    strings.ToUpper(req.Currency),
 		"order_id":    orderID,
 		"customer_id": req.RazorpayCustomerID,
@@ -1076,7 +1077,7 @@ func (s *PaymentService) RefundLateCapturedPayment(
 		return nil
 	}
 
-	refundID, err := s.ensureRefunded(ctx, razorpayPaymentID, toPaise(existingPayment.Amount))
+	refundID, err := s.ensureRefunded(ctx, razorpayPaymentID, toSmallestUnit(existingPayment.Amount, existingPayment.Currency))
 	if err != nil {
 		return ierr.WithError(err).
 			WithMessage("failed to refund late-captured payment at Razorpay").
